@@ -1,69 +1,116 @@
-import Image from "next/image";
+'use client';
+
+import { useState } from 'react';
+import ChatRoom from '@/components/ChatRoom';
+import { Heart, X, MessageCircle, MapPin, Compass } from 'lucide-react';
+
+const MOCK_TRAVELERS = [
+  {
+    id: 'user-002',
+    full_name: '阿霖',
+    destination: '尼泊爾 安納布爾納環線',
+    style: '徒步重裝 / 戶外攝影',
+    bio: '預計秋天走 ACT 大環線，想找步速相近、喜歡拍照的搭子互相照應！',
+    image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500&auto=format&fit=crop&q=80',
+  },
+  {
+    id: 'user-003',
+    full_name: 'Suki',
+    destination: '京都 & 宇治',
+    style: '慢活自由行 / 咖啡館巡禮',
+    bio: '不趕行程，每天找一間町家咖啡館坐著看書拍照，歡迎搭伙吃晚餐。',
+    image: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=500&auto=format&fit=crop&q=80',
+  },
+];
 
 export default function Home() {
+  const currentUserId = 'user-001';
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [activeChatUser, setActiveChatUser] = useState<typeof MOCK_TRAVELERS[0] | null>(null);
+
+  const traveler = MOCK_TRAVELERS[currentIndex];
+
+  const handleNext = () => {
+    if (currentIndex < MOCK_TRAVELERS.length - 1) {
+      setCurrentIndex((prev) => prev + 1);
+    } else {
+      setCurrentIndex(0);
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+    <main className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4">
+      <header className="mb-6 text-center">
+        <h1 className="text-2xl font-bold text-slate-800">SoloTraveler 旅行搭子配對</h1>
+        <p className="text-sm text-slate-500">尋找步調相投的旅伴，一起出發</p>
+      </header>
+
+      {!activeChatUser ? (
+        <div className="w-full max-w-sm bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-200">
+          <div className="relative h-80 w-full bg-slate-200">
+            <img
+              src={traveler.image}
+              alt={traveler.full_name}
+              className="w-full h-full object-cover"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-5 text-white">
+              <h2 className="text-2xl font-bold">{traveler.full_name}</h2>
+              <div className="flex items-center gap-1.5 text-xs text-slate-200 mt-1">
+                <MapPin size={14} className="text-red-400" />
+                <span>想去：{traveler.destination}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5 space-y-3">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">
+              <Compass size={14} />
+              <span>{traveler.style}</span>
+            </div>
+            <p className="text-sm text-slate-600 line-clamp-3 leading-relaxed">
+              {traveler.bio}
+            </p>
+          </div>
+
+          <div className="px-6 pb-6 pt-2 flex items-center justify-center gap-6">
+            <button
+              onClick={handleNext}
+              className="p-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full transition-all shadow-sm"
+              title="下一個"
+            >
+              <X size={24} />
+            </button>
+            <button
+              onClick={() => setActiveChatUser(traveler)}
+              className="p-4 bg-blue-600 hover:bg-blue-700 text-white rounded-full transition-all shadow-md hover:scale-105"
+              title="立即聊聊"
+            >
+              <MessageCircle size={24} />
+            </button>
+            <button
+              onClick={handleNext}
+              className="p-4 bg-rose-500 hover:bg-rose-600 text-white rounded-full transition-all shadow-md hover:scale-105"
+              title="想同遊"
+            >
+              <Heart size={24} />
+            </button>
+          </div>
         </div>
-      </main>
-    </div>
+      ) : (
+        <div className="w-full flex flex-col items-center">
+          <button
+            onClick={() => setActiveChatUser(null)}
+            className="mb-3 text-sm text-slate-500 hover:text-slate-800 underline"
+          >
+            ← 返回滑動配對
+          </button>
+          <ChatRoom
+            currentUserId={currentUserId}
+            targetUserId={activeChatUser.id}
+            targetUserName={activeChatUser.full_name}
+          />
+        </div>
+      )}
+    </main>
   );
 }
