@@ -103,7 +103,7 @@ export default function Home() {
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-10">
         <div>
           <h1 className="text-xl font-black text-blue-600">✈️ SoloTravel Match</h1>
-          <p className="text-xs text-slate-500">3男3女 鎖定成團 · 全員離開即銷毀</p>
+          <p className="text-xs text-slate-500">3男3女 鎖定成團 · 6大旅行風格</p>
         </div>
         {currentUser && (
           <span className="text-[11px] bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full border border-blue-200 font-medium">
@@ -168,7 +168,9 @@ export default function Home() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">年齡</label>
-                <select value={ageRange} onChange={e => setAgeRange(e.target.value)} className="w-full p-2.5 text-sm border border-slate-200 rounded-xl outline-none bg-white"><{AGE_RANGES.map(a => <option key={a} value={a}>{a}</option>)}</select>
+                <select value={ageRange} onChange={e => setAgeRange(e.target.value)} className="w-full p-2.5 text-sm border border-slate-200 rounded-xl outline-none bg-white">
+                  {AGE_RANGES.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">旅行風格</label>
