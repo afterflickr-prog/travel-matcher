@@ -4,147 +4,191 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import DestinationChatRoom from '@/components/DestinationChatRoom';
 
-interface Profile {
+interface UserInfo {
   id: string;
-  full_name: string;
+  name: string;
   gender: string;
   age: number;
-  target_destination: string;
-  travel_style: string;
-  bio: string;
 }
 
-interface DestinationGroup {
-  name: string;
-  memberCount: number;
-  members: Profile[];
-}
+// 預設熱門目的地，用戶亦可自行自訂輸入新增
+const DEFAULT_DESTINATIONS = [
+  { name: '尼泊爾 (ACT/ABC)', tag: '徒步健行' },
+  { name: '日本京都', tag: '慢活散策' },
+  { name: '冰島環島', tag: '公路自駕' },
+  { name: '泰國清邁', tag: '數位遊牧' },
+  { name: '瑞士阿爾卑斯', tag: '高山風景' },
+  { name: '西藏阿里', tag: '荒野冒險' },
+];
 
 export default function Home() {
-  const [myProfile, setMyProfile] = useState<Profile | null>(null);
-  const [destinations, setDestinations] = useState<DestinationGroup[]>([]);
-  const [activeDestination, setActiveDestination] = useState<string | null>(null);
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [destinations, setDestinations] = useState<string[]>(DEFAULT_DESTINATIONS.map(d => d.name));
+  const [selectedDest, setSelectedDest] = useState<string | null>(null);
+  const [activeChatRoom, setActiveChatRoom] = useState<string | null>(null);
 
   // 表單狀態
-  const [fullName, setFullName] = useState('');
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [customDestInput, setCustomDestInput] = useState('');
+  const [name, setName] = useState('');
   const [gender, setGender] = useState('男');
-  const [age, setAge] = useState(26);
-  const [destination, setDestination] = useState('');
-  const [style, setStyle] = useState('徒步健行 / 戶外冒險');
-  const [bio, setBio] = useState('');
-  const [showModal, setShowModal] = useState(false);
+  const [age, setAge] = useState(25);
 
   useEffect(() => {
-    const storedId = localStorage.getItem('traveler_user_id');
-    if (storedId) {
-      loadMyProfile(storedId);
-    } else {
-      setShowModal(true);
+    // 讀取本地用戶身份
+    const savedUser = localStorage.getItem('traveler_user_info');
+    if (savedUser) {
+      try {
+        setUserInfo(JSON.parse(savedUser));
+      } catch (e) {
+        console.error(e);
+      }
     }
-    loadDestinationGroups();
   }, []);
 
-  async function loadMyProfile(userId: string) {
-    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    if (data) {
-      setMyProfile(data);
+  // 點選進入目的地聊天室
+  function handleSelectDestination(dest: string) {
+    setSelectedDest(dest);
+    if (!userInfo) {
+      setShowUserModal(true);
     } else {
-      setShowModal(true);
+      setActiveChatRoom(dest);
     }
   }
 
-  async function loadDestinationGroups() {
-    const { data: allProfiles } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('updated_at', { ascending: false });
-
-    if (!allProfiles) return;
-
-    // 將所有用戶依目的地分組
-    const map = new Map<string, Profile[]>();
-    allProfiles.forEach((p) => {
-      const dest = p.target_destination.trim();
-      if (!map.has(dest)) {
-        map.set(dest, []);
-      }
-      map.get(dest)?.push(p);
-    });
-
-    const groups: DestinationGroup[] = Array.from(map.entries()).map(([name, members]) => ({
-      name,
-      memberCount: members.length,
-      members,
-    }));
-
-    setDestinations(groups);
+  // 自訂新增目的地
+  function handleAddCustomDestination(e: React.FormEvent) {
+    e.preventDefault();
+    if (!customDestInput.trim()) return;
+    const newDest = customDestInput.trim();
+    if (!destinations.includes(newDest)) {
+      setDestinations([newDest, ...destinations]);
+    }
+    setCustomDestInput('');
+    handleSelectDestination(newDest);
   }
 
-  async function handleRegister(e: React.FormEvent) {
+  // 提交年齡性別稱呼
+  function handleSubmitUserInfo(e: React.FormEvent) {
     e.preventDefault();
-    if (!fullName || !destination || !age) {
-      alert('請填寫完整資訊！');
+    if (!name.trim() || !age) {
+      alert('請填妥稱呼與年齡！');
       return;
     }
 
-    const newId = crypto.randomUUID();
-    const newProfile: Profile = {
-      id: newId,
-      full_name: fullName,
+    const newUser: UserInfo = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
       gender,
       age: Number(age),
-      target_destination: destination.trim(),
-      travel_style: style,
-      bio: bio || '隨興出發的旅人！',
     };
 
-    const { error } = await supabase.from('profiles').insert([newProfile]);
-    if (error) {
-      alert('儲存失敗：' + error.message);
-      return;
-    }
+    localStorage.setItem('traveler_user_info', JSON.stringify(newUser));
+    setUserInfo(newUser);
+    setShowUserModal(false);
 
-    localStorage.setItem('traveler_user_id', newId);
-    setMyProfile(newProfile);
-    setShowModal(false);
-    loadDestinationGroups();
-    // 加入後自動打開該目的地的聊天室
-    setActiveDestination(newProfile.target_destination);
+    if (selectedDest) {
+      setActiveChatRoom(selectedDest);
+    }
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900 pb-16">
-      {/* 頂部導航 */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-20 shadow-sm">
+    <main className="min-h-screen bg-slate-100 text-slate-800 pb-20">
+      {/* 頂部標頭 */}
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-10">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-blue-600">SoloTravel Match ✈️</h1>
-          <p className="text-xs text-slate-500">目的地即時聊天群與旅伴配對</p>
+          <h1 className="text-xl font-black text-blue-600 tracking-tight flex items-center gap-2">
+            ✈️ SoloTravel Match
+          </h1>
+          <p className="text-xs text-slate-500">選擇目的地即刻暢聊 · 全員離開自動關閉清空</p>
         </div>
-        {myProfile && (
+        {userInfo && (
           <div className="flex items-center gap-2">
-            <span className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full border border-blue-200 font-medium">
-              {myProfile.full_name} ({myProfile.gender}·{myProfile.age}歲) 📍 {myProfile.target_destination}
+            <span className="text-xs bg-slate-100 border border-slate-200 text-slate-700 px-3 py-1.5 rounded-full font-medium">
+              👤 {userInfo.name} ({userInfo.gender} · {userInfo.age}歲)
             </span>
           </div>
         )}
       </header>
 
-      {/* 初始登入引導彈窗 */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
-            <h2 className="text-xl font-bold text-slate-800 mb-1">加入旅伴頻道 🎒</h2>
-            <p className="text-xs text-slate-500 mb-4">免註冊，輸入你想去的目的地與稱呼，即可解鎖該地專屬討論室！</p>
+      {/* 核心內容區 */}
+      <div className="max-w-4xl mx-auto px-4 mt-8">
+        {/* 新增或搜尋目的地 */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm mb-6">
+          <h2 className="text-sm font-bold text-slate-700 mb-2">🔍 找不到你想去的地方？自訂發起新聊天室：</h2>
+          <form onSubmit={handleAddCustomDestination} className="flex gap-2">
+            <input
+              type="text"
+              placeholder="輸入目的地名稱 (例如：北海道、稻城亞丁、巴塞隆納)..."
+              value={customDestInput}
+              onChange={(e) => setCustomDestInput(e.target.value)}
+              className="flex-1 px-4 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="submit"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 text-sm font-semibold rounded-xl transition shadow-sm"
+            >
+              開啟頻道
+            </button>
+          </form>
+        </div>
 
-            <form onSubmit={handleRegister} className="space-y-3.5">
+        {/* 目的地清單列表 (每個都是獨立 item) */}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-bold text-slate-800">🌍 目的地即時頻道列表</h2>
+          <span className="text-xs text-slate-400">點選立即加入討論</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {destinations.map((dest) => (
+            <div
+              key={dest}
+              onClick={() => handleSelectDestination(dest)}
+              className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-400 cursor-pointer transition flex flex-col justify-between group"
+            >
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">你的暱稱</label>
+                <div className="flex justify-between items-start mb-2">
+                  <span className="text-lg font-bold text-slate-800 group-hover:text-blue-600 transition">
+                    📍 {dest}
+                  </span>
+                  <span className="text-[10px] bg-emerald-50 text-emerald-600 border border-emerald-200 px-2 py-0.5 rounded-full font-medium">
+                    即開即聊
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 line-clamp-2">
+                  點擊進入【{dest}】專屬聊天頻道，與志同道合的旅伴組隊或交流。
+                </p>
+              </div>
+
+              <div className="mt-5 flex items-center justify-between pt-3 border-t border-slate-100">
+                <span className="text-[11px] text-slate-400">
+                  全員離開即關閉
+                </span>
+                <span className="text-xs text-blue-600 font-semibold group-hover:translate-x-1 transition">
+                  進入頻道 →
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 首次進入填寫個人資料彈窗 */}
+      {showUserModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-150">
+            <h2 className="text-lg font-bold text-slate-800 mb-1">即將進入【{selectedDest}】🎒</h2>
+            <p className="text-xs text-slate-500 mb-4">免註冊，請留下簡單稱呼方便聊天室夥伴交流：</p>
+
+            <form onSubmit={handleSubmitUserInfo} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">暱稱 / 稱呼</label>
                 <input
                   type="text"
                   required
-                  placeholder="例如：Ken / 阿豪"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="例如：Ken / 小晴"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
                   className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
@@ -176,134 +220,23 @@ export default function Home() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">想去的目的地</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="例如：尼泊爾、冰島、京都、西藏"
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">旅行風格</label>
-                <select
-                  value={style}
-                  onChange={(e) => setStyle(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                >
-                  <option value="徒步健行 / 戶外冒險">徒步健行 / 戶外冒險</option>
-                  <option value="城市漫步 / 慢活咖啡">城市漫步 / 慢活咖啡</option>
-                  <option value="自駕公路 / 風景攝影">自駕公路 / 風景攝影</option>
-                  <option value="特種兵窮遊 / 青年旅館">特種兵窮遊 / 青年旅館</option>
-                  <option value="度假放鬆 / 美食巡禮">度假放鬆 / 美食巡禮</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">簡短介紹 / 出發月份</label>
-                <input
-                  type="text"
-                  placeholder="例如：預計11月出發，想找人一起健行拼車"
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-
               <button
                 type="submit"
                 className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition shadow-md mt-2"
               >
-                解鎖並進入聊天頻道
+                確認並進入對話
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* 目的地 Chatroom 清單列表 */}
-      <div className="max-w-4xl mx-auto px-4 mt-8">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-slate-800">目的地專屬聊天室 ({destinations.length})</h2>
-          <button
-            onClick={loadDestinationGroups}
-            className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-          >
-            🔄 刷新頻道
-          </button>
-        </div>
-
-        {destinations.length === 0 ? (
-          <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center text-slate-400 text-sm">
-            目前還沒有目的地頻道，完成上方填寫即可自動開拓第一個聊天室！
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {destinations.map((group) => {
-              const isMyDestination = myProfile?.target_destination === group.name;
-              return (
-                <div
-                  key={group.name}
-                  className={`bg-white rounded-2xl p-5 border shadow-sm transition hover:shadow-md flex flex-col justify-between ${
-                    isMyDestination ? 'border-blue-400 ring-1 ring-blue-400' : 'border-slate-200'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-base font-bold text-slate-800 flex items-center gap-2">
-                        📍 {group.name}
-                        {isMyDestination && (
-                          <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-normal">
-                            你的目的地
-                          </span>
-                        )}
-                      </span>
-                      <span className="text-xs font-semibold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full">
-                        👥 {group.memberCount} 位旅人
-                      </span>
-                    </div>
-
-                    {/* 成員頭像/標籤預覽 */}
-                    <div className="flex flex-wrap gap-1.5 mt-3 mb-4">
-                      {group.members.slice(0, 4).map((m) => (
-                        <span
-                          key={m.id}
-                          className="text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200"
-                        >
-                          {m.full_name} ({m.gender}/{m.age})
-                        </span>
-                      ))}
-                      {group.members.length > 4 && (
-                        <span className="text-[11px] text-slate-400 px-1 py-0.5">
-                          +{group.members.length - 4}...
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => setActiveDestination(group.name)}
-                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
-                  >
-                    💬 進入【{group.name}】聊天室
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* 目的地專屬聊天視窗 */}
-      {activeDestination && myProfile && (
+      {/* 目的地專屬聊天室視窗 */}
+      {activeChatRoom && userInfo && (
         <DestinationChatRoom
-          destination={activeDestination}
-          currentUser={myProfile}
-          onClose={() => setActiveDestination(null)}
+          destination={activeChatRoom}
+          currentUser={userInfo}
+          onClose={() => setActiveChatRoom(null)}
         />
       )}
     </main>
