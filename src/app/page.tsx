@@ -43,46 +43,74 @@ export default function Home() {
   const [destination, setDestination] = useState(DESTINATIONS[0]);
   const [customDest, setCustomDest] = useState('');
   const [tab, setTab] = useState<'rooms' | 'create'>('create');
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem('traveler_session');
-    if (saved) {
-      try {
+    setMounted(true);
+    try {
+      const saved = localStorage.getItem('traveler_session');
+      if (saved) {
         const parsed = JSON.parse(saved);
-        setCurrentUser(parsed);
-        setName(parsed.name || '');
-        setGender(parsed.gender || '男');
-        setAgeRange(parsed.ageRange || AGE_RANGES[1]);
-        setTravelStyle(parsed.travelStyle || TRAVEL_STYLES[2].name);
-      } catch (e) {}
+        if (parsed && typeof parsed === 'object') {
+          const validSession: UserSession = {
+            id: parsed.id || crypto.randomUUID(),
+            name: parsed.name || '',
+            gender: parsed.gender || '男',
+            ageRange: parsed.ageRange || AGE_RANGES[1],
+            travelStyle: parsed.travelStyle || TRAVEL_STYLES[2].name,
+            destination: parsed.destination || DESTINATIONS[0]
+          };
+          setCurrentUser(validSession);
+          setName(validSession.name);
+          setGender(validSession.gender);
+          setAgeRange(validSession.ageRange);
+          setTravelStyle(validSession.travelStyle);
+        }
+      }
+    } catch (e) {
+      localStorage.removeItem('traveler_session');
     }
+
     fetchActiveRooms();
 
     const channel = supabase.channel('public_attendees')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendees' }, fetchActiveRooms)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendees' }, () => {
+        fetchActiveRooms();
+      })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   async function fetchActiveRooms() {
-    const { data } = await supabase.from('attendees').select('*');
-    if (!data) return;
-    const roomMap = new Map<string, ActiveRoom>();
-    data.forEach(a => {
-      if (!roomMap.has(a.destination)) {
-        roomMap.set(a.destination, { destination: a.destination, confirmedMales: 0, confirmedFemales: 0, totalAttendees: 0 });
-      }
-      const r = roomMap.get(a.destination)!;
-      r.totalAttendees += 1;
-      if (a.status === 'confirmed') {
-        if (a.user_gender === '男') r.confirmedMales += 1;
-        if (a.user_gender === '女') r.confirmedFemales += 1;
-      }
-    });
-    setActiveRooms(Array.from(roomMap.values()));
+    try {
+      const { data, error } = await supabase.from('attendees').select('*');
+      if (error || !data) return;
+      const roomMap = new Map<string, ActiveRoom>();
+      data.forEach(a => {
+        if (!a || !a.destination) return;
+        if (!roomMap.has(a.destination)) {
+          roomMap.set(a.destination, {
+            destination: a.destination,
+            confirmedMales: 0,
+            confirmedFemales: 0,
+            totalAttendees: 0
+          });
+        }
+        const r = roomMap.get(a.destination)!;
+        r.totalAttendees += 1;
+        if (a.status === 'confirmed') {
+          if (a.user_gender === '男') r.confirmedMales += 1;
+          if (a.user_gender === '女') r.confirmedFemales += 1;
+        }
+      });
+      setActiveRooms(Array.from(roomMap.values()));
+    } catch (err) {}
   }
 
-  function handleJoin(e: React.FormEvent, targetDest?: string) {
+  function handleJoin(e?: React.FormEvent, targetDest?: string) {
     if (e) e.preventDefault();
     if (!name.trim()) return alert('請填寫稱呼');
     
@@ -91,11 +119,21 @@ export default function Home() {
 
     const session: UserSession = {
       id: currentUser?.id || crypto.randomUUID(),
-      name: name.trim(), gender, ageRange, travelStyle, destination: finalDest
+      name: name.trim(),
+      gender,
+      ageRange,
+      travelStyle,
+      destination: finalDest
     };
-    localStorage.setItem('traveler_session', JSON.stringify(session));
+    try {
+      localStorage.setItem('traveler_session', JSON.stringify(session));
+    } catch (e) {}
     setCurrentUser(session);
     setActiveChatRoom(finalDest);
+  }
+
+  if (!mounted) {
+    return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-400 text-sm">載入中...</div>;
   }
 
   return (
@@ -107,7 +145,7 @@ export default function Home() {
         </div>
         {currentUser && (
           <span className="text-[11px] bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full border border-blue-200 font-medium">
-            👤 {currentUser.name} ({currentUser.gender}) · {currentUser.travelStyle.split(' ')[0]}
+            👤 {currentUser.name} ({currentUser.gender}) · {(currentUser.travelStyle || '').split(' ')[0]}
           </span>
         )}
       </header>
@@ -136,7 +174,7 @@ export default function Home() {
                       <span>♀ 女生已確認: {r.confirmedFemales}/3</span>
                     </div>
                   </div>
-                  <button onClick={(e) => handleJoin(e, r.destination)} className="w-full py-2 bg-slate-100 hover:bg-blue-600 hover:text-white text-blue-600 font-bold text-sm rounded-xl transition">進入房間搶佔席位 →</button>
+                  <button onClick={() => handleJoin(undefined, r.destination)} className="w-full py-2 bg-slate-100 hover:bg-blue-600 hover:text-white text-blue-600 font-bold text-sm rounded-xl transition">進入房間搶佔席位 →</button>
                 </div>
               ))
             )}
