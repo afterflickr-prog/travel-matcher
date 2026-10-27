@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 import DestinationChatRoom from '@/components/DestinationChatRoom';
 
 interface UserSession {
@@ -8,37 +9,40 @@ interface UserSession {
   name: string;
   gender: string;
   ageRange: string;
+  travelStyle: string;
   destination: string;
 }
 
-const DESTINATION_OPTIONS = [
-  '尼泊爾 (ACT/ABC 徒步)',
-  '日本京都 (漫活散策)',
-  '冰島 (自駕環島/極光)',
-  '泰國清邁 (數位遊牧)',
-  '瑞士阿爾卑斯 (高山風光)',
-  '西藏阿里 (高原探索)',
-  '其他自訂目的地...',
-];
+interface ActiveRoom {
+  destination: string;
+  confirmedMales: number;
+  confirmedFemales: number;
+  totalAttendees: number;
+}
 
-const AGE_RANGES = [
-  '18 - 25 歲',
-  '26 - 30 歲',
-  '31 - 35 歲',
-  '36 - 41 歲',
-  '42 歲以上',
+const DESTINATIONS = ['尼泊爾 (ACT/ABC 徒步)', '日本京都 (漫活散策)', '冰島 (自駕環島/極光)', '泰國清邁 (數位遊牧)', '瑞士阿爾卑斯 (高山風光)'];
+const AGE_RANGES = ['18 - 25 歲', '26 - 30 歲', '31 - 35 歲', '36 - 41 歲', '42 歲以上'];
+const TRAVEL_STYLES = [
+  { name: '📋 總建築師', desc: '行程規劃狂，文件齊全，絕不錯過班車。' },
+  { name: '🕰️ 慢旅行者', desc: '好好認識一個地方，同一條街走到不再陌生。' },
+  { name: '🥾 冒險者', desc: '假期有海拔圖，用爬山、潛水來選目的地。' },
+  { name: '🍜 吃貨型', desc: '用餐廳清單導航城市，為了一碗麵跨區。' },
+  { name: '🏛️ 文化探索者', desc: '出發前先讀書，能在博物館待三小時。' },
+  { name: '🏖️ 充電型', desc: '好床、泳池、沒行程，徹底放空。' }
 ];
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
   const [activeChatRoom, setActiveChatRoom] = useState<string | null>(null);
-
-  // 表單狀態
+  const [activeRooms, setActiveRooms] = useState<ActiveRoom[]>([]);
+  
   const [name, setName] = useState('');
   const [gender, setGender] = useState('男');
-  const [ageRange, setAgeRange] = useState('26 - 30 歲');
-  const [destination, setDestination] = useState(DESTINATION_OPTIONS[0]);
-  const [customDestination, setCustomDestination] = useState('');
+  const [ageRange, setAgeRange] = useState(AGE_RANGES[1]);
+  const [travelStyle, setTravelStyle] = useState(TRAVEL_STYLES[2].name);
+  const [destination, setDestination] = useState(DESTINATIONS[0]);
+  const [customDest, setCustomDest] = useState('');
+  const [tab, setTab] = useState<'rooms' | 'create'>('create');
 
   useEffect(() => {
     const saved = localStorage.getItem('traveler_session');
@@ -48,160 +52,140 @@ export default function Home() {
         setCurrentUser(parsed);
         setName(parsed.name || '');
         setGender(parsed.gender || '男');
-        setAgeRange(parsed.ageRange || '26 - 30 歲');
-      } catch (e) {
-        console.error(e);
-      }
+        setAgeRange(parsed.ageRange || AGE_RANGES[1]);
+        setTravelStyle(parsed.travelStyle || TRAVEL_STYLES[2].name);
+      } catch (e) {}
     }
+    fetchActiveRooms();
+
+    const channel = supabase.channel('public_attendees')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendees' }, fetchActiveRooms)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
-  function handleJoinRoom(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) {
-      alert('請輸入你的稱呼！');
-      return;
-    }
+  async function fetchActiveRooms() {
+    const { data } = await supabase.from('attendees').select('*');
+    if (!data) return;
+    const roomMap = new Map<string, ActiveRoom>();
+    data.forEach(a => {
+      if (!roomMap.has(a.destination)) {
+        roomMap.set(a.destination, { destination: a.destination, confirmedMales: 0, confirmedFemales: 0, totalAttendees: 0 });
+      }
+      const r = roomMap.get(a.destination)!;
+      r.totalAttendees += 1;
+      if (a.status === 'confirmed') {
+        if (a.user_gender === '男') r.confirmedMales += 1;
+        if (a.user_gender === '女') r.confirmedFemales += 1;
+      }
+    });
+    setActiveRooms(Array.from(roomMap.values()));
+  }
 
-    const finalDest = destination === '其他自訂目的地...' ? customDestination.trim() : destination;
-    if (!finalDest) {
-      alert('請填寫目的地！');
-      return;
-    }
+  function handleJoin(e: React.FormEvent, targetDest?: string) {
+    if (e) e.preventDefault();
+    if (!name.trim()) return alert('請填寫稱呼');
+    
+    const finalDest = targetDest || (destination === '其他' ? customDest.trim() : destination);
+    if (!finalDest) return alert('請填寫目的地');
 
     const session: UserSession = {
       id: currentUser?.id || crypto.randomUUID(),
-      name: name.trim(),
-      gender,
-      ageRange,
-      destination: finalDest,
+      name: name.trim(), gender, ageRange, travelStyle, destination: finalDest
     };
-
     localStorage.setItem('traveler_session', JSON.stringify(session));
     setCurrentUser(session);
     setActiveChatRoom(finalDest);
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 flex flex-col justify-between text-slate-800">
-      {/* 頂部標題 */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm">
+    <main className="min-h-screen bg-slate-50 text-slate-800 pb-20">
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-10">
         <div>
-          <h1 className="text-xl font-black text-blue-600 tracking-tight flex items-center gap-2">
-            ✈️ SoloTravel Match
-          </h1>
-          <p className="text-xs text-slate-500">免註冊即開即聊 · 所有人離開聊天室即關閉清空</p>
+          <h1 className="text-xl font-black text-blue-600">✈️ SoloTravel Match</h1>
+          <p className="text-xs text-slate-500">3男3女 鎖定成團 · 全員離開即銷毀</p>
         </div>
         {currentUser && (
-          <span className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full border border-blue-200 font-medium">
-            👤 {currentUser.name} ({currentUser.gender} · {currentUser.ageRange})
+          <span className="text-[11px] bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full border border-blue-200 font-medium">
+            👤 {currentUser.name} ({currentUser.gender}) · {currentUser.travelStyle.split(' ')[0]}
           </span>
         )}
       </header>
 
-      {/* 核心卡片區 */}
-      <div className="max-w-md w-full mx-auto px-4 py-8">
-        <div className="bg-white rounded-3xl p-6 md:p-8 shadow-xl border border-slate-200">
-          <div className="text-center mb-6">
-            <span className="text-3xl">🎒</span>
-            <h2 className="text-xl font-bold text-slate-900 mt-2">尋找同路旅伴</h2>
-            <p className="text-xs text-slate-500 mt-1">選擇目的地與條件，即刻加入專屬聊天頻道</p>
+      <div className="max-w-2xl mx-auto px-4 mt-8">
+        <div className="flex bg-slate-200/50 p-1 rounded-xl mb-6">
+          <button onClick={() => setTab('rooms')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition ${tab === 'rooms' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>🔥 現有活躍房間</button>
+          <button onClick={() => setTab('create')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition ${tab === 'create' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>📍 選擇/發起新目的地</button>
+        </div>
+
+        {tab === 'rooms' && (
+          <div className="space-y-4">
+            {activeRooms.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 text-sm bg-white rounded-2xl border border-dashed border-slate-300">目前暫無活躍房間，切換至發起新目的地開拓第一間！</div>
+            ) : (
+              activeRooms.map(r => (
+                <div key={r.destination} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="font-bold text-lg text-slate-800">📍 {r.destination}</h3>
+                    <span className="text-[11px] bg-emerald-50 text-emerald-600 border border-emerald-200 px-2.5 py-1 rounded-full font-medium">👥 {r.totalAttendees} 人參與中</span>
+                  </div>
+                  <div className="text-xs space-y-1.5 mb-4 text-slate-600">
+                    <div>🎯 距離 3男3女成團 尚餘：<span className="font-bold text-blue-600">{Math.max(0, 3 - r.confirmedMales)} 男</span> 、 <span className="font-bold text-orange-500">{Math.max(0, 3 - r.confirmedFemales)} 女</span></div>
+                    <div className="flex gap-4">
+                      <span>♂ 男生已確認: {r.confirmedMales}/3</span>
+                      <span>♀ 女生已確認: {r.confirmedFemales}/3</span>
+                    </div>
+                  </div>
+                  <button onClick={(e) => handleJoin(e, r.destination)} className="w-full py-2 bg-slate-100 hover:bg-blue-600 hover:text-white text-blue-600 font-bold text-sm rounded-xl transition">進入房間搶佔席位 →</button>
+                </div>
+              ))
+            )}
           </div>
+        )}
 
-          <form onSubmit={handleJoinRoom} className="space-y-4">
-            {/* 1. 稱呼 */}
+        {tab === 'create' && (
+          <form onSubmit={(e) => handleJoin(e)} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">你的稱呼 / 暱稱</label>
-              <input
-                type="text"
-                required
-                placeholder="例如：Ken / 小晴"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </div>
-
-            {/* 2. 目的地下拉選單 */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">想去哪裡？(目的地)</label>
-              <select
-                value={destination}
-                onChange={(e) => setDestination(e.target.value)}
-                className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-              >
-                {DESTINATION_OPTIONS.map((dest) => (
-                  <option key={dest} value={dest}>
-                    📍 {dest}
-                  </option>
-                ))}
+              <label className="block text-xs font-bold text-slate-700 mb-1">目的地</label>
+              <select value={destination} onChange={e => setDestination(e.target.value)} className="w-full p-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                {DESTINATIONS.map(d => <option key={d} value={d}>{d}</option>)}
+                <option value="其他">其他自訂目的地...</option>
               </select>
-
-              {destination === '其他自訂目的地...' && (
-                <input
-                  type="text"
-                  required
-                  placeholder="請輸入目的地名稱 (例如：葡萄牙、沙巴)..."
-                  value={customDestination}
-                  onChange={(e) => setCustomDestination(e.target.value)}
-                  className="mt-2 w-full px-4 py-2 text-sm border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              )}
+              {destination === '其他' && <input type="text" placeholder="輸入目的地..." value={customDest} onChange={e => setCustomDest(e.target.value)} className="mt-2 w-full p-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" required />}
             </div>
-
-            {/* 3. 性別與年齡區間下拉選單 */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">性別</label>
-                <select
-                  value={gender}
-                  onChange={(e) => setGender(e.target.value)}
-                  className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                >
-                  <option value="男">男</option>
-                  <option value="女">女</option>
-                  <option value="其他">其他</option>
-                </select>
+                <label className="block text-xs font-bold text-slate-700 mb-1">稱呼</label>
+                <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="暱稱" className="w-full p-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" required />
               </div>
-
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">年齡區間</label>
-                <select
-                  value={ageRange}
-                  onChange={(e) => setAgeRange(e.target.value)}
-                  className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                >
-                  {AGE_RANGES.map((range) => (
-                    <option key={range} value={range}>
-                      {range}
-                    </option>
-                  ))}
+                <label className="block text-xs font-bold text-slate-700 mb-1">性別</label>
+                <select value={gender} onChange={e => setGender(e.target.value)} className="w-full p-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                  <option value="男">男</option><option value="女">女</option>
                 </select>
               </div>
             </div>
-
-            {/* 送出進入頻道按鈕 */}
-            <button
-              type="submit"
-              className="w-full mt-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-sm transition shadow-lg shadow-blue-500/20 active:scale-[0.99]"
-            >
-              進入【{destination === '其他自訂目的地...' ? (customDestination || '自訂') : destination}】聊天室 →
-            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">年齡</label>
+                <select value={ageRange} onChange={e => setAgeRange(e.target.value)} className="w-full p-2.5 text-sm border border-slate-200 rounded-xl outline-none bg-white"><{AGE_RANGES.map(a => <option key={a} value={a}>{a}</option>)}</select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">旅行風格</label>
+                <select value={travelStyle} onChange={e => setTravelStyle(e.target.value)} className="w-full p-2.5 text-sm border border-slate-200 rounded-xl outline-none bg-white">
+                  {TRAVEL_STYLES.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-xs text-slate-500 leading-relaxed">
+              {TRAVEL_STYLES.find(s => s.name === travelStyle)?.desc}
+            </div>
+            <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm transition shadow-sm">開啟專屬頻道 →</button>
           </form>
-        </div>
+        )}
       </div>
 
-      <footer className="text-center text-[11px] text-slate-400 py-4">
-        全員離開即關閉清空 · 閱後無痕安全交流
-      </footer>
-
-      {/* 目的地專屬聊天視窗 */}
-      {activeChatRoom && currentUser && (
-        <DestinationChatRoom
-          destination={activeChatRoom}
-          currentUser={currentUser}
-          onClose={() => setActiveChatRoom(null)}
-        />
-      )}
+      {activeChatRoom && currentUser && <DestinationChatRoom destination={activeChatRoom} currentUser={currentUser} onClose={() => setActiveChatRoom(null)} />}
     </main>
   );
 }
