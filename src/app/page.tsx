@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import ChatRoom from '@/components/ChatRoom';
+import DestinationChatRoom from '@/components/DestinationChatRoom';
 
 interface Profile {
   id: string;
@@ -14,29 +14,34 @@ interface Profile {
   bio: string;
 }
 
+interface DestinationGroup {
+  name: string;
+  memberCount: number;
+  members: Profile[];
+}
+
 export default function Home() {
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [activeChatUser, setActiveChatUser] = useState<Profile | null>(null);
+  const [destinations, setDestinations] = useState<DestinationGroup[]>([]);
+  const [activeDestination, setActiveDestination] = useState<string | null>(null);
 
   // 表單狀態
   const [fullName, setFullName] = useState('');
   const [gender, setGender] = useState('男');
-  const [age, setAge] = useState(25);
+  const [age, setAge] = useState(26);
   const [destination, setDestination] = useState('');
   const [style, setStyle] = useState('徒步健行 / 戶外冒險');
   const [bio, setBio] = useState('');
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
-    // 檢查本地是否已有用戶身份
     const storedId = localStorage.getItem('traveler_user_id');
     if (storedId) {
       loadMyProfile(storedId);
     } else {
       setShowModal(true);
     }
-    loadOtherProfiles(storedId);
+    loadDestinationGroups();
   }, []);
 
   async function loadMyProfile(userId: string) {
@@ -48,13 +53,31 @@ export default function Home() {
     }
   }
 
-  async function loadOtherProfiles(currentUserId: string | null) {
-    let query = supabase.from('profiles').select('*').order('updated_at', { ascending: false });
-    if (currentUserId) {
-      query = query.neq('id', currentUserId);
-    }
-    const { data } = await query;
-    if (data) setProfiles(data);
+  async function loadDestinationGroups() {
+    const { data: allProfiles } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('updated_at', { ascending: false });
+
+    if (!allProfiles) return;
+
+    // 將所有用戶依目的地分組
+    const map = new Map<string, Profile[]>();
+    allProfiles.forEach((p) => {
+      const dest = p.target_destination.trim();
+      if (!map.has(dest)) {
+        map.set(dest, []);
+      }
+      map.get(dest)?.push(p);
+    });
+
+    const groups: DestinationGroup[] = Array.from(map.entries()).map(([name, members]) => ({
+      name,
+      memberCount: members.length,
+      members,
+    }));
+
+    setDestinations(groups);
   }
 
   async function handleRegister(e: React.FormEvent) {
@@ -70,9 +93,9 @@ export default function Home() {
       full_name: fullName,
       gender,
       age: Number(age),
-      target_destination: destination,
+      target_destination: destination.trim(),
       travel_style: style,
-      bio: bio || '背包客一名，隨時出發！',
+      bio: bio || '隨興出發的旅人！',
     };
 
     const { error } = await supabase.from('profiles').insert([newProfile]);
@@ -84,36 +107,38 @@ export default function Home() {
     localStorage.setItem('traveler_user_id', newId);
     setMyProfile(newProfile);
     setShowModal(false);
-    loadOtherProfiles(newId);
+    loadDestinationGroups();
+    // 加入後自動打開該目的地的聊天室
+    setActiveDestination(newProfile.target_destination);
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900 pb-12">
+    <main className="min-h-screen bg-slate-50 text-slate-900 pb-16">
       {/* 頂部導航 */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-20 shadow-sm">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-blue-600">SoloTravel Match ✈️</h1>
-          <p className="text-xs text-slate-500">免註冊旅行搭子即時配對平台</p>
+          <p className="text-xs text-slate-500">目的地即時聊天群與旅伴配對</p>
         </div>
         {myProfile && (
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full border border-blue-200">
-              {myProfile.full_name} ({myProfile.gender} · {myProfile.age}歲) 📍 {myProfile.target_destination}
+          <div className="flex items-center gap-2">
+            <span className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full border border-blue-200 font-medium">
+              {myProfile.full_name} ({myProfile.gender}·{myProfile.age}歲) 📍 {myProfile.target_destination}
             </span>
           </div>
         )}
       </header>
 
-      {/* 初始引導彈窗 (未填寫目的地/性別年齡時強制出現) */}
+      {/* 初始登入引導彈窗 */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
-            <h2 className="text-xl font-bold text-slate-800 mb-1">開始尋找旅伴 🎒</h2>
-            <p className="text-xs text-slate-500 mb-5">不需要註冊密碼，簡單填寫目的地與資訊即可開始即時聊天！</p>
+            <h2 className="text-xl font-bold text-slate-800 mb-1">加入旅伴頻道 🎒</h2>
+            <p className="text-xs text-slate-500 mb-4">免註冊，輸入你想去的目的地與稱呼，即可解鎖該地專屬討論室！</p>
 
-            <form onSubmit={handleRegister} className="space-y-4">
+            <form onSubmit={handleRegister} className="space-y-3.5">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">你的暱稱 / 稱呼</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">你的暱稱</label>
                 <input
                   type="text"
                   required
@@ -156,7 +181,7 @@ export default function Home() {
                 <input
                   type="text"
                   required
-                  placeholder="例如：尼泊爾、西藏、京都、冰島"
+                  placeholder="例如：尼泊爾、冰島、京都、西藏"
                   value={destination}
                   onChange={(e) => setDestination(e.target.value)}
                   className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
@@ -179,10 +204,10 @@ export default function Home() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">一句話簡介 / 出發時間</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">簡短介紹 / 出發月份</label>
                 <input
                   type="text"
-                  placeholder="例如：11月想找人一起拼車健行，喜歡拍照"
+                  placeholder="例如：預計11月出發，想找人一起健行拼車"
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                   className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
@@ -193,74 +218,92 @@ export default function Home() {
                 type="submit"
                 className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition shadow-md mt-2"
               >
-                立即加入並尋找旅伴
+                解鎖並進入聊天頻道
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* 主介面：旅行者卡片列表 */}
-      <div className="max-w-4xl mx-auto px-4 mt-6">
-        <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center justify-between">
-          <span>正在尋找旅伴的旅人 ({profiles.length})</span>
+      {/* 目的地 Chatroom 清單列表 */}
+      <div className="max-w-4xl mx-auto px-4 mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-slate-800">目的地專屬聊天室 ({destinations.length})</h2>
           <button
-            onClick={() => myProfile && loadOtherProfiles(myProfile.id)}
-            className="text-xs text-blue-600 hover:underline"
+            onClick={loadDestinationGroups}
+            className="text-xs text-blue-600 hover:underline flex items-center gap-1"
           >
-            🔄 刷新列表
+            🔄 刷新頻道
           </button>
-        </h2>
+        </div>
 
-        {profiles.length === 0 ? (
+        {destinations.length === 0 ? (
           <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center text-slate-400 text-sm">
-            目前還沒有其他旅人，使用無痕視窗開啟另一個分頁填寫，即可互相測試聊天！
+            目前還沒有目的地頻道，完成上方填寫即可自動開拓第一個聊天室！
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {profiles.map((p) => (
-              <div
-                key={p.id}
-                className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between hover:border-blue-400 transition"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-slate-800 text-base">{p.full_name}</span>
-                    <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
-                      {p.gender} · {p.age}歲
-                    </span>
-                  </div>
-                  <div className="text-xs font-semibold text-blue-600 mb-1">
-                    🎯 目的地：{p.target_destination}
-                  </div>
-                  <div className="text-xs text-slate-500 mb-3">
-                    🏷️ 風格：{p.travel_style}
-                  </div>
-                  <p className="text-sm text-slate-600 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                    "{p.bio}"
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => setActiveChatUser(p)}
-                  className="mt-4 w-full py-2 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-600 font-semibold text-xs rounded-lg border border-blue-200 transition flex items-center justify-center gap-1.5"
+            {destinations.map((group) => {
+              const isMyDestination = myProfile?.target_destination === group.name;
+              return (
+                <div
+                  key={group.name}
+                  className={`bg-white rounded-2xl p-5 border shadow-sm transition hover:shadow-md flex flex-col justify-between ${
+                    isMyDestination ? 'border-blue-400 ring-1 ring-blue-400' : 'border-slate-200'
+                  }`}
                 >
-                  💬 立即私聊搭話
-                </button>
-              </div>
-            ))}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-base font-bold text-slate-800 flex items-center gap-2">
+                        📍 {group.name}
+                        {isMyDestination && (
+                          <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-normal">
+                            你的目的地
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-xs font-semibold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full">
+                        👥 {group.memberCount} 位旅人
+                      </span>
+                    </div>
+
+                    {/* 成員頭像/標籤預覽 */}
+                    <div className="flex flex-wrap gap-1.5 mt-3 mb-4">
+                      {group.members.slice(0, 4).map((m) => (
+                        <span
+                          key={m.id}
+                          className="text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200"
+                        >
+                          {m.full_name} ({m.gender}/{m.age})
+                        </span>
+                      ))}
+                      {group.members.length > 4 && (
+                        <span className="text-[11px] text-slate-400 px-1 py-0.5">
+                          +{group.members.length - 4}...
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setActiveDestination(group.name)}
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    💬 進入【{group.name}】聊天室
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* 即時私聊懸浮視窗 */}
-      {activeChatUser && myProfile && (
-        <ChatRoom
-          currentUserId={myProfile.id}
-          currentUserName={myProfile.full_name}
-          targetUserId={activeChatUser.id}
-          targetUserName={activeChatUser.full_name}
-          onClose={() => setActiveChatUser(null)}
+      {/* 目的地專屬聊天視窗 */}
+      {activeDestination && myProfile && (
+        <DestinationChatRoom
+          destination={activeDestination}
+          currentUser={myProfile}
+          onClose={() => setActiveDestination(null)}
         />
       )}
     </main>
